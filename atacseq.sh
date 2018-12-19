@@ -14,7 +14,7 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
 
   export trim_job_$n=$(echo " #!/bin/bash
     #SBATCH --time=12:00:00
-    #SBATCH --job-name=$(echo "Trimmomatic_${i}")
+    #SBATCH --job-name=Trimmomatic_$i
     #SBATCH --output=%x-%j.out
     #SBATCH --error %x-%j.err
     #SBATCH --ntasks=12
@@ -59,7 +59,7 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
  
  export bowtie_job_$n=$(echo " #!/bin/bash
   #SBATCH --time=12:00:00
-  #SBATCH --job-name=bowtie_align
+  #SBATCH --job-name=bowtie_align$i
   #SBATCH --output=%x-%j.out
   #SBATCH --error %x-%j.err
   #SBATCH --ntasks=16
@@ -89,11 +89,12 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   ### STEP : SAM_SORT
   
   cd $dir0
-  mkdir sort_dir
+  mkdir -p sorted_bam/coordinate
+  mkdir -p sorted_bam/queryname
   
   export sort_job_$n=$( echo "#!/bin/bash
     #SBATCH --time=5:00:00
-    #SBATCH --job-name=sort_bam
+    #SBATCH --job-name=sort_bam_$i
     #SBATCH --output=%x_%j.out
     #SBATCH --error=%x_%j.err
     #SBATCH --ntasks=16
@@ -102,7 +103,6 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
     #SBATCH --mail-user=sophie.ehresmann@gmail.com
 
     SAMPLE=$1
-    dir0=/home/p1044860/scratch
     sort_dir=${dir0}/sorted_bam/
     bam_dir=${dir0}/bowtie/${SAMPLE}
 
@@ -115,7 +115,13 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
 
       java -jar $EBROOTPICARD/picard.jar SortSam\
       I=${bam_dir}/${SAMPLE}_aligned.bam\
-      O=${sort_dir}/$2/${SAMPLE}_sorted_$2.bam\
-      SORT_ORDER=$2
+      O=${sort_dir}/coordinate/${SAMPLE}_sorted_$2.bam\
+      SORT_ORDER=coordinate
+      
+      java -jar $EBROOTPICARD/picard.jar SortSam\
+      I=${bam_dir}/${SAMPLE}_aligned.bam\
+      O=${sort_dir}/queryname/${SAMPLE}_sorted_$2.bam\
+      SORT_ORDER=queryname      
+      
   
 (( n++ ))
