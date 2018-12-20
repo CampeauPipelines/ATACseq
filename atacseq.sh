@@ -12,7 +12,7 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   cd $dir0
   mkdir -p trim/trimlog
 
-  export trim_job_$n=$(echo " #!/bin/bash
+  export trim_job_${n}=$(echo "#!/bin/bash
     #SBATCH --time=12:00:00
     #SBATCH --job-name=Trimmomatic_$i
     #SBATCH --output=%x-%j.out
@@ -36,11 +36,11 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
             java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.36.jar PE -phred33 \
             -trimlog ${trimlogdir}/${SAMPLE}_trim.txt\
             ${FASTQ_DIR}/${SAMPLE}/*.fastq.gz\
-            ${trimdir}/${SAMPLE}/${SAMPLE}_forward_paired.fastq.gz\
-            ${trimdir}/${SAMPLE}/${SAMPLE}_forward_unpaired.fastq.gz\
-            ${trimdir}/trim/${SAMPLE}/${SAMPLE}_reverse_paired.fastq.gz\
-            ${trimdir}/${SAMPLE}/${SAMPLE}_reverse_unpaired.fastq.gz\
-            ILLUMINACLIP:${dir0}/adapters.fasta:2:30:15:8:true\
+            ${trimdir}/${SAMPLE}_forward_paired.fastq.gz\
+            ${trimdir}/${SAMPLE}_forward_unpaired.fastq.gz\
+            ${trimdir}/${SAMPLE}_reverse_paired.fastq.gz\
+            ${trimdir}/${SAMPLE}_reverse_unpaired.fastq.gz\
+            ILLUMINACLIP:${dir0}/adapters.txt:2:30:15:8:true\
             TRAILING:30\
             MINLEN:32\" |
     sbatch | grep "[0-9]" | cut -d\ -f4)
@@ -57,7 +57,7 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
  
  cd $dir0 
  
- export bowtie_job_$n=$(echo " #!/bin/bash
+ export bowtie_job_${n}=$(echo "#!/bin/bash
   #SBATCH --time=12:00:00
   #SBATCH --job-name=bowtie_align$i
   #SBATCH --output=%x-%j.out
@@ -70,18 +70,16 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   
   SAMPLE=$i
   aligndir=${dir0}/bowtie
-  indexdir=${dir0}/bowtie_index/
-  trimdir=${dir0}/trim/${SAMPLE}
+  indexdir=${dir0}/bowtie_index
+  trimdir=${dir0}/trim
 
   cd ${aligndir}
-  mkdir ${SAMPLE} 
-  cd ${SAMPLE}
 
   module load bowtie2
 
   bowtie2 -x ${indexdir} -q --local --phred33 --mm --threads 16 \
-          -1 ${trimdir}/forward_paired.fastq.gz \
-          -2 ${trimdir}/reverse_paired.fastq.gz \
+          -1 ${trimdir}/${SAMPLE}_forward_paired.fastq.gz \
+          -2 ${trimdir}/${SAMPLE}_reverse_paired.fastq.gz \
     -S ${SAMPLE}_aligned.sam \ |
   sbatch --depend=afterok:trim_job_${n} | grep "[0-9]" | cut -d\ -f4)
 
@@ -92,7 +90,7 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   mkdir -p sorted_bam/coordinate
   mkdir -p sorted_bam/queryname
   
-  export sort_job_$n=$( echo "#!/bin/bash
+  export sort_job_${n}=$(echo "#!/bin/bash
     #SBATCH --time=5:00:00
     #SBATCH --job-name=sort_bam_$i
     #SBATCH --output=%x_%j.out
@@ -100,11 +98,11 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
     #SBATCH --ntasks=16
     #SBATCH --mem=50000
     #SBATCH --mail-type=END,FAIL
-    #SBATCH --mail-user=sophie.ehresmann@gmail.com
+    #SBATCH --mail-user=$JOB_MAIL
 
-    SAMPLE=$1
-    sort_dir=${dir0}/sorted_bam/
-    bam_dir=${dir0}/bowtie/${SAMPLE}
+    SAMPLE=$i
+    sort_dir=${dir0}/sorted_bam
+    bam_dir=${dir0}/bowtie
 
     cd ${sort_dir}
 
@@ -115,13 +113,79 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
 
       java -jar $EBROOTPICARD/picard.jar SortSam\
       I=${bam_dir}/${SAMPLE}_aligned.bam\
-      O=${sort_dir}/coordinate/${SAMPLE}_sorted_$2.bam\
-      SORT_ORDER=coordinate
-      
-      java -jar $EBROOTPICARD/picard.jar SortSam\
-      I=${bam_dir}/${SAMPLE}_aligned.bam\
-      O=${sort_dir}/queryname/${SAMPLE}_sorted_$2.bam\
-      SORT_ORDER=queryname      
-      
+      O=${sort_dir}/coordinate/${SAMPLE}_sorted_coordinate.bam\
+      SORT_ORDER=coordinate" |
+  sbatch --depend=afterok:bowtie_job${$n} | grep "[0-9]" | cut -d\ -f4)
+
+  ### STEP : MARK DUPLICATES
+  
+  cd $dir0
+  mkdir -p mark_dup/metrics
+  
+  export dup_job_${n}=$(echo "#!/bin/bash
+  #SBATCH --time=5:00:00
+  #SBATCH --job-name=mark_dup_${i}
+  #SBATCH --output=%x_%j.out
+  #SBATCH --error=%x_%j.err
+  #SBATCH --ntasks=16
+  #SBATCH --mem=50000
+  #SBATCH --mail-type=END,FAIL
+  #SBATCH --mail-user=$JOB_MAIL
+  
+  SAMPLE=$i
+  dup_dir=${dir0}/mark_dup
+  sort_dir=${dir0}/sorted_bam
+  metrics_dir=${dup_dir}/metrics
+
+  cd ${dup_dir}
+  mkdir ${metrics_dir}
+
+  module load java/1.8.0_121a picard/2.10.7 &&\
+    java -jar $EBROOTPICARD/picard.jar MarkDuplicates\
+    I=${sort_dir}/coordinate/${SAMPLE}_sorted_coordinate.bam\
+    O=${SAMPLE}_marked_duplicates_coordinate.bam\
+    M=${metrics_dir}/marked_duplicates_metrics_coordinate_${SAMPLE}.txt\
+    REMOVE_DUPLICATES=false" |
+    sbatch --depend=afterok:sort_job_${n} | grep "[0-9]" | cut -d\ -f4)
+    
+  ### STEP: REMOVE FLAGS
+  
+  cd $dir0
+  mkdir -p final_bam/stats
+  
+  export flag_job_${n}=$(echo "#!/bin/bash
+  #SBATCH --time=12:00:00
+  #SBATCH --job-name=remove_flags_${i}
+  #SBATCH --output=%x_%j.out
+  #SBATCH --error=%x_%j.err
+  #SBATCH --ntasks=12
+  #SBATCH --mem=20000
+  #SBATCH --mail-type=END,FAIL
+  #SBATCH --mail-user=$JOB_MAIL
+
+  SAMPLE=$i
+  dup_dir=${dir0}/mark_dup/${SAMPLE}
+  final_bam_dir=${dir0}/final_bam
+  stats_dir=${final_bam_dir}/stats
+
+  cd ${final_bam_dir}
+
+  module load samtools/1.5\
+    samtools view -F 1804\
+          ${dup_dir}/marked_duplicates_coordinate_${SAMPLE}.bam>${SAMPLE}_final.bam
+
+    wait 1
+
+    samtools index\
+           ${SAMPLE}_final.bam\
+           ${SAMPLE}_final.bam.bai
+
+    wait 1
+
+    samtools flagstat\
+      ${SAMPLE}_final.bam>${stats_dir}/${SAMPLE}_final_bam_stats.txt
+
+  
+  
   
 (( n++ ))
