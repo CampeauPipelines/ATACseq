@@ -183,8 +183,35 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
     wait 1
 
     samtools flagstat\
-      ${SAMPLE}_final.bam>${stats_dir}/${SAMPLE}_final_bam_stats.txt
+      ${SAMPLE}_final.bam>${stats_dir}/${SAMPLE}_final_bam_stats.txt" |
+    sbatch --depend=afterok:dup_job_${n} | grep "[0-9]" | cut -d\ -f4)
+    
+   ### STEP : PEAK CALLING 
+   
+  cd $dir0
+  mkdir -p peaks
+  
+  export peak_job_${n}=$(echo "#!/bin/bash
+  #SBATCH --time=6:00:00
+  #SBATCH --job-name=peak_calling_${i}
+  #SBATCH --output=%x_%j.out
+  #SBATCH --error=%x_%j.err
+  #SBATCH --ntasks=6
+  #SBATCH --mem=20000
+  #SBATCH --mail-type=END,FAIL
+  #SBATCH --mail-user=$JOB_MAIL
 
+  SAMPLE=$i
+  
+  final_bam_dir=${dir0}/final_bam
+  peak_dir=${dir0}/peaks
+  
+  cd peak_dir
+  
+  module load mugqic/MACS2
+  
+  macs2 callpeak -t ${final_bam_dir}/${SAMPLE}_final.bam --keep-dup all --broad --nomodel --extsize 200 --nolambda -n $SAMPLE -f BAMPE " |
+  sbatch --depend=afterok:flag_job_${n} | grep "[0-9]" | cut -d\ -f4)
   
   
   
