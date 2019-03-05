@@ -216,3 +216,5 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   
   
 (( n++ ))
+
+done
