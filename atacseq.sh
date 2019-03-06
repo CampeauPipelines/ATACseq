@@ -213,7 +213,45 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   macs2 callpeak -t ${final_bam_dir}/${SAMPLE}_final.bam --keep-dup all --broad --nomodel --extsize 200 --nolambda -n $SAMPLE -f BAMPE " |
   sbatch --depend=afterok:flag_job_${n} | grep "[0-9]" | cut -d\ -f4)
   
-  
+#STEP: QC
+
+cd $dir0
+mkkdir stats
+
+export stat_job_${n}=$(echo "#!/bin/bash
+#SBATCH --time=4:00:00
+#SBATCH --job-name=stats_atac_test_$(i)
+#SBATCH --output=%x-%j.out
+#SBATCH --error %x-%j.err
+#SBATCH --ntasks=2
+#SBATCH --mem-per-cpu=2000
+#SBATCH --mail-user=$JOB_MAIL
+#SBATCH --mail-type=END, FAIL
+#SBATCH --A=$SLURM_ACCOUNT
+
+
+bam_dir=${dir0}/final_bam
+cd ${dir0}/stats
+
+module load samtools
+
+for f in $(ls $bam_dir | grep ".sh"); do
+  file=${bam_dir}/$f
+  samtools flagstat $file > ${f}_stats.txt
+  export CHROMOSOMES=\$(samtools view -H $file | grep '^@SQ' | cut -f 2 | grep -v -e _ -e MT -e 'VN:' | sed 's/SN://' | xargs echo)
+  samtools view -b -h -f 3 -F 4 -F 8 -F 256 -F 1024 -F 2048 -q 10 -@ 12 $file \$CHROMOSOMES > $f.mapped.bam
+  samtools view -b -h -f 3 -F 4 -F 8 -F 256 -F 1024 -F 2048 -q 10 -@ 12 $file MT > $f.chrM.bam
+
+done
+
+for f in $(ls *.mapped.bam); do
+        samtools view -@ 12 $f | cut -f1 | sort -u | wc -l
+done > processed_reads.txt
+
+for f in $(ls *.chrM.bam); do
+        samtools view -@ 12 $f | cut -f1 | sort -u | wc -l
+done > processed_reads_MT.txt
+
   
 (( n++ ))
 
