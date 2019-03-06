@@ -238,7 +238,7 @@ module load samtools
 for f in $(ls $bam_dir | grep ".sh"); do
   file=${bam_dir}/$f
   samtools flagstat $file > ${f}_stats.txt
-  export CHROMOSOMES=\$(samtools view -H $file | grep '^@SQ' | cut -f 2 | grep -v -e _ -e MT -e 'VN:' | sed 's/SN://' | xargs echo)
+  CHROMOSOMES=samtools view -H $file | grep '^@SQ' | cut -f 2 | grep -v -e _ -e MT -e 'VN:' -e "GL" | sed 's/SN://' | xargs echo
   samtools view -b -h -f 3 -F 4 -F 8 -F 256 -F 1024 -F 2048 -q 10 -@ 12 $file \$CHROMOSOMES > $f.mapped.bam
   samtools view -b -h -f 3 -F 4 -F 8 -F 256 -F 1024 -F 2048 -q 10 -@ 12 $file MT > $f.chrM.bam
 
