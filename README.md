@@ -7,4 +7,4 @@ bash atacseq.sh <working_dir> <fastq_dir> <adapters>
 
 - Directories should be called by their full addresses
 - Aligns by default to human hg19, modify the script where indicated for other index values
-- Make sure your .bash_profile is up to date (see CampeauPipelines/RNAseq
+- Make sure your .bash_profile is up to date (see CampeauPipelines/RNAseq for details)
