@@ -1,10 +1,12 @@
 #!/bin/batch
-## bash atacseq.sh <working_dir> <fastq_dir>
-## Directories should be called by their addresses 
+## bash atacseq.sh <working_dir> <fastq_dir> <adapters>
+## Directories should be called by their full addresses 
+## Aligns by defaults to human hg19, modify the script for other index
 
 
 dir0=$1
 fastq_dir=$2
+adapters=$3
 
 cd $dir0
 mkdir -p trim/trimlog
@@ -28,13 +30,14 @@ peakdir=${dir0}/peaks
 finalstatsdir=${dir0}/final_stats
 
 
-cd bowtie/bowtie_index ## Fetch Bowtie index for hg19
-wget ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/hg19.ebwt.zip
+cd bowtie/bowtie_index 
+wget ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/hg19.ebwt.zip ### Modify here for a different alignment index
 unzip *.zip
  
 cd $dir0
 
 n=1
+
 for i in $(ls $fastq_dir | grep -e "fastq.gz"); do
 
   SAMPLE=$(echo $i | awk -F ".fastq.gz" '{print $1}') ##Get name of sample
@@ -63,9 +66,9 @@ for i in $(ls $fastq_dir | grep -e "fastq.gz"); do
             ${trimdir}/${SAMPLE}_forward_unpaired.fastq.gz\
             ${trimdir}/${SAMPLE}_reverse_paired.fastq.gz\
             ${trimdir}/${SAMPLE}_reverse_unpaired.fastq.gz\
-            ILLUMINACLIP:${dir0}/adapters.txt:2:30:15:8:true\
+            ILLUMINACLIP:${adapters}:2:30:15:8:true\
             TRAILING:30\
-            MINLEN:32\" |
+            MINLEN:32\ " |
     sbatch | grep "[0-9]" | cut -d\ -f4)
           
 
@@ -242,6 +245,6 @@ export stat_job_${n}=$(echo "#!/bin/bash
   done > processed_reads_MT.txt " |
  sbatch --depend=afterok:flag_job_${n} | grep "[0-9]" | cut -d\ -f4)
 
-((n++))
+n=n+1
 
 done
