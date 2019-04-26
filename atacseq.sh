@@ -1,41 +1,58 @@
 #!/bin/batch
+## bash atacseq.sh <working_dir> <fastq_dir>
+## Directories should be called by their addresses 
+
 
 dir0=$1
+fastq_dir=$2
 
 cd $dir0
+mkdir -p trim/trimlog
+mkdir -p bowtie/bowtie_index
+mkdir -p sorted_bam/
+mkdir -p mark_dup/metrics
+mkdir -p final_bam/stats
 
-n=1
-while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
+trimdir=${dir0}/trim
+trimlogdir=${trimdir}/trimlog
+aligndir=${dir0}/bowtie
+indexdir=${aligndir}/bowtie_index
+sortdir=${dir0}/sorted_bam
+dupdir=${dir0}/mark_dup
+metricsdir=${dupdir}/metrics
+finalbamdir=${dir0}/final_bam
+
+cd bowtie/bowtie_index ## Fetch Bowtie index for hg19
+wget ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/hg19.ebwt.zip
+unzip *.zip
+ 
+cd $dir0
+
+n=0
+for i in $(ls $fastq_dir | grep -e "fastq.gz"); do
+  n++
+  SAMPLE=$(echo $i | awk -F ".fastq.gz" '{print $1}') ##Get name of sample
 
   ### STEP : TRIMMOMATIC
 
-  cd $dir0
-  mkdir -p trim/trimlog
-
   export trim_job_${n}=$(echo "#!/bin/bash
     #SBATCH --time=12:00:00
-    #SBATCH --job-name=Trimmomatic_$i
+    #SBATCH --job-name=Trimmomatic_$SAMPLE
     #SBATCH --output=%x-%j.out
     #SBATCH --error %x-%j.err
     #SBATCH --ntasks=12
     #SBATCH --mem-per-cpu=2000
     #SBATCH --mail-user=$JOB_MAIL
     #SBATCH --mail-type=END, FAIL
-    #SBATCH --A=$SLURM_ACCOUNT
+    #SBATCH --A=$SLURM_ACCOUNT    
+    
+    cd ${fastq_dir}
+    fastqs=$(ls | grep -e "${SAMPLE}")  ## Get forward and reverse fastqs
 
-    SAMPLE=$i
-
-    FASTQ_DIR=${dir0}/QD303
-    trimdir=${dir0}/trim
-    trimlogdir=${trimdir}/trimlog
-
-    cd ${trimdir}
-    mkdir ${SAMPLE}
-
-    module load  java/1.8.0_121 trimmomatic/0.36 && \
+    module load  java trimmomatic && \
             java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.36.jar PE -phred33 \
             -trimlog ${trimlogdir}/${SAMPLE}_trim.txt\
-            ${FASTQ_DIR}/${SAMPLE}/*.fastq.gz\
+            $fastqs\
             ${trimdir}/${SAMPLE}_forward_paired.fastq.gz\
             ${trimdir}/${SAMPLE}_forward_unpaired.fastq.gz\
             ${trimdir}/${SAMPLE}_reverse_paired.fastq.gz\
@@ -47,19 +64,13 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
           
 
 
- ### STEP: BOWTIE
- cd $dir0
- mkdir -p bowtie/bowtie_index
- cd bowtie/bowtie_index
- 
- wget ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/hg19.ebwt.zip
- unzip *.zip
+      ### STEP: BOWTIE
  
  cd $dir0 
  
  export bowtie_job_${n}=$(echo "#!/bin/bash
   #SBATCH --time=12:00:00
-  #SBATCH --job-name=bowtie_align$i
+  #SBATCH --job-name=bowtie_align${i}
   #SBATCH --output=%x-%j.out
   #SBATCH --error %x-%j.err
   #SBATCH --ntasks=16
@@ -67,11 +78,6 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   #SBATCH --mail-type=END,FAIL
   #SBATCH --mail-user=$JOB_MAIL
   #SBATCH --A=$SLURM_ACCOUNT
-  
-  SAMPLE=$i
-  aligndir=${dir0}/bowtie
-  indexdir=${dir0}/bowtie_index
-  trimdir=${dir0}/trim
 
   cd ${aligndir}
 
@@ -87,12 +93,10 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   ### STEP : SAM_SORT
   
   cd $dir0
-  mkdir -p sorted_bam/coordinate
-  mkdir -p sorted_bam/queryname
   
   export sort_job_${n}=$(echo "#!/bin/bash
     #SBATCH --time=5:00:00
-    #SBATCH --job-name=sort_bam_$i
+    #SBATCH --job-name=sort_bam_${i}
     #SBATCH --output=%x_%j.out
     #SBATCH --error=%x_%j.err
     #SBATCH --ntasks=16
@@ -100,27 +104,23 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
     #SBATCH --mail-type=END,FAIL
     #SBATCH --mail-user=$JOB_MAIL
 
-    SAMPLE=$i
-    sort_dir=${dir0}/sorted_bam
-    bam_dir=${dir0}/bowtie
 
-    cd ${sort_dir}
+    cd ${sortdir}
 
-    module load java/1.8.0_121a picard/2.10.7 samtools/1.5 &&\
+    module load java picard samtools &&\
 
-      samtools view -S -b ${bam_dir}/${SAMPLE}_aligned.sam > ${bam_dir}/${SAMPLE}_aligned.bam
-      rm ${bam_dir}/${SAMPLE}_aligned.sam
+      samtools view -S -b ${aligndir}/${SAMPLE}_aligned.sam > ${aligndir}/${SAMPLE}_aligned.bam
+      rm ${aligndir}/${SAMPLE}_aligned.sam
 
       java -jar $EBROOTPICARD/picard.jar SortSam\
-      I=${bam_dir}/${SAMPLE}_aligned.bam\
-      O=${sort_dir}/coordinate/${SAMPLE}_sorted_coordinate.bam\
+      I=${aligndir}/${SAMPLE}_aligned.bam\
+      O=${sortdir}/${SAMPLE}_sorted.bam\
       SORT_ORDER=coordinate" |
   sbatch --depend=afterok:bowtie_job${$n} | grep "[0-9]" | cut -d\ -f4)
 
   ### STEP : MARK DUPLICATES
   
   cd $dir0
-  mkdir -p mark_dup/metrics
   
   export dup_job_${n}=$(echo "#!/bin/bash
   #SBATCH --time=5:00:00
@@ -132,17 +132,12 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   #SBATCH --mail-type=END,FAIL
   #SBATCH --mail-user=$JOB_MAIL
   
-  SAMPLE=$i
-  dup_dir=${dir0}/mark_dup
-  sort_dir=${dir0}/sorted_bam
-  metrics_dir=${dup_dir}/metrics
-
-  cd ${dup_dir}
-  mkdir ${metrics_dir}
-
+  
+  cd ${dupdir}
+  
   module load java/1.8.0_121a picard/2.10.7 &&\
     java -jar $EBROOTPICARD/picard.jar MarkDuplicates\
-    I=${sort_dir}/coordinate/${SAMPLE}_sorted_coordinate.bam\
+    I=${sort_dir}/${SAMPLE}_sorted_coordinate.bam\
     O=${SAMPLE}_marked_duplicates_coordinate.bam\
     M=${metrics_dir}/marked_duplicates_metrics_coordinate_${SAMPLE}.txt\
     REMOVE_DUPLICATES=false" |
@@ -151,7 +146,6 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   ### STEP: REMOVE FLAGS
   
   cd $dir0
-  mkdir -p final_bam/stats
   
   export flag_job_${n}=$(echo "#!/bin/bash
   #SBATCH --time=12:00:00
@@ -164,15 +158,15 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   #SBATCH --mail-user=$JOB_MAIL
 
   SAMPLE=$i
-  dup_dir=${dir0}/mark_dup/${SAMPLE}
-  final_bam_dir=${dir0}/final_bam
-  stats_dir=${final_bam_dir}/stats
+  dupdir=${dir0}/mark_dup/${SAMPLE}
+  finalbamdir=${dir0}/final_bam
+  statsdir=${finalbamdir}/stats
 
-  cd ${final_bam_dir}
+  cd ${finalbamdir}
 
   module load samtools/1.5\
     samtools view -F 1804\
-          ${dup_dir}/marked_duplicates_coordinate_${SAMPLE}.bam>${SAMPLE}_final.bam
+          ${dup_dir}/marked_duplicates_${SAMPLE}.bam>${SAMPLE}_final.bam
 
     wait 1
 
@@ -210,7 +204,8 @@ while [$n -le $(ls fastq_files |grep -e "fastq.gz" | wc -l)]; do
   
   module load mugqic/MACS2
   
-  macs2 callpeak -t ${final_bam_dir}/${SAMPLE}_final.bam --keep-dup all --broad --nomodel --extsize 200 --nolambda -n $SAMPLE -f BAMPE " |
+  macs2 callpeak -t ${final_bam_dir}/${SAMPLE}_final.bam --keep-dup all \
+  --broad --nomodel --extsize 200 --nolambda -n $SAMPLE -f BAMPE " |
   sbatch --depend=afterok:flag_job_${n} | grep "[0-9]" | cut -d\ -f4)
   
 #STEP: QC
