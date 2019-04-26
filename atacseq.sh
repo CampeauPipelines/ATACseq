@@ -30,7 +30,7 @@ peakdir=${dir0}/peaks
 finalstatsdir=${dir0}/final_stats
 
 
-cd bowtie/bowtie_index 
+cd ${indexdir} 
 wget ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/hg19.ebwt.zip ### Modify here for a different alignment index
 unzip *.zip
  
