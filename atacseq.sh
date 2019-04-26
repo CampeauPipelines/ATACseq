@@ -168,7 +168,7 @@ for i in $(ls $fastq_dir | grep -e "fastq.gz"); do
 
   cd ${finalbamdir}
 
-  module load samtools\
+  module load samtools \
     samtools view -F 1804\
        ${dup_dir}/${SAMPLE}_markdup.bam>${SAMPLE}_final.bam
 
