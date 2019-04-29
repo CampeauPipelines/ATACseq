@@ -40,7 +40,7 @@ n=1
 
 for i in $(ls $fastq_dir | grep -e "fastq.gz"); do
 
-  SAMPLE=$(echo $i | awk -F ".fastq.gz" '{print $1}') ##Get name of sample
+  SAMPLE=$(echo $i | awk -F "_R1" '{print $1}' | awk) ##Get name of sample, must have _R1, and a corresponding _R2
 
   ### STEP : TRIMMOMATIC
 
